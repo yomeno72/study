@@ -43,6 +43,23 @@
            background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); white-space: nowrap; }
   .badge.hot { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
   .day.today h2 { color: var(--accent); }
+  .time small { display: block; color: var(--hint); font-weight: 400; font-size: 12px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px;
+         vertical-align: middle; background: var(--hint); }
+  .dot.lecture { background: #4c8dff; }
+  .dot.practice { background: #3ecf8e; }
+  .dot.lab { background: #f5a524; }
+  .dot.own { background: #b57cff; }
+  .weeknav { display: flex; align-items: center; gap: 8px; background: var(--card); border-radius: 14px; padding: 6px; }
+  .weeknav button { background: var(--field); color: var(--text); border: 0; border-radius: 10px;
+                    width: 40px; height: 40px; font-size: 20px; cursor: pointer; }
+  .weeknav .label { flex: 1; text-align: center; }
+  .weeknav .label b { display: block; }
+  .weeknav .label span { color: var(--hint); font-size: 13px; }
+  .source { color: var(--hint); font-size: 12px; text-align: center; margin: 14px 4px 0; }
+  .source a { color: var(--accent); }
+  .hide { background: var(--field); color: var(--hint); border: 0; border-radius: 8px; font: inherit;
+          font-size: 12px; padding: 5px 8px; cursor: pointer; white-space: nowrap; }
 
   .weather .temp { font-size: 44px; font-weight: 700; line-height: 1.1; }
   .weather .desc { font-size: 18px; margin-top: 2px; }
@@ -84,7 +101,7 @@
 
 <section id="tab-weather">
   <div class="card weather" id="weather"><div class="empty">Загружаю…</div></div>
-  <h2>Сегодня</h2>
+  <h2 id="today-title">Сегодня</h2>
   <div class="list" id="today-lessons"></div>
   <h2>Ближайшее</h2>
   <div class="list" id="soon"></div>
@@ -95,17 +112,35 @@
       <button class="primary" style="flex:none;padding:11px 16px">OK</button>
     </form>
   </div>
+  <h2>Группа ТулГУ</h2>
+  <div class="card">
+    <form id="group-form" class="inline">
+      <input name="group" inputmode="numeric" placeholder="Номер группы" required>
+      <button class="primary" style="flex:none;padding:11px 16px">OK</button>
+    </form>
+  </div>
 </section>
 
 <section id="tab-lessons" hidden>
+  <div class="weeknav">
+    <button id="week-prev" aria-label="Предыдущая неделя">‹</button>
+    <div class="label" id="week-label"></div>
+    <button id="week-next" aria-label="Следующая неделя">›</button>
+  </div>
   <div id="week"></div>
-  <h2>Добавить пару</h2>
+  <div class="source" id="uni-source"></div>
+  <h2>Добавить свою пару</h2>
   <div class="card">
     <form id="lesson-form">
       <div class="inline">
         <select name="day" id="day-select"></select>
         <input name="time" type="time" required value="09:00">
       </div>
+      <select name="week">
+        <option value="0">Каждую неделю</option>
+        <option value="1">Только нечётные недели</option>
+        <option value="2">Только чётные недели</option>
+      </select>
       <input name="title" placeholder="Предмет, аудитория" required>
       <button class="primary">Добавить</button>
     </form>
@@ -241,23 +276,106 @@ function leftBadge(iso) {
   return `<span class="badge ${n <= 1 ? "hot" : ""}">${text}</span>`;
 }
 
+// ---------- недели и пары ----------
+
+const DAY_MS = 86400000;
+const PARITY = ["", "нечётные", "чётные"];
+
+function mondayOf(d) {
+  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  m.setDate(m.getDate() - (m.getDay() + 6) % 7);
+  return m;
+}
+// номер учебной недели: первая — та, в которую попадает 1 сентября
+function academicWeek(d) {
+  const year = d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1;
+  return Math.round((mondayOf(d) - mondayOf(new Date(year, 8, 1))) / (7 * DAY_MS)) + 1;
+}
+const isOddWeek = (d) => academicWeek(d) % 2 === 1;
+const weekLabel = (d) => `${academicWeek(d)}-я неделя · ${isOddWeek(d) ? "нечётная" : "чётная"}`;
+
+let uni = {lessons: [], updated: null, error: false};
+const variantKey = (l) => [l.s, l.k, l.p, l.n].join("|");
+let weekOffset = 0;
+
+async function loadUni() {
+  uni = {lessons: [], updated: null, error: false};
+  if (data.group) {
+    try {
+      const res = await fetch(`schedule/${encodeURIComponent(data.group)}.json`, {cache: "no-cache"});
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      uni = {lessons: json.lessons, updated: json.updated, error: false};
+    } catch {
+      uni.error = true;
+    }
+  }
+  render();
+}
+
+// пары на конкретную дату: из расписания ТулГУ + свои
+function lessonsOn(date) {
+  const iso = isoDate(date);
+  const wd = (date.getDay() + 6) % 7;
+  const day = uni.lessons.filter((l) => l.d === iso);
+  const fromUni = day.filter((l) => !data.hidden.includes(variantKey(l))).map((l) => ({
+    time: l.t, end: l.e, title: l.s, cls: l.c, sub: [l.k, l.a, l.p, l.n].filter(Boolean).join(" · "),
+    // параллельные пары в одно время — это подгруппы: чужую можно скрыть
+    hide: day.some((o) => o !== l && o.t === l.t) || /п\/гр/.test(l.n) ? variantKey(l) : null,
+  }));
+  const own = data.lessons
+    .filter((l) => l.day === wd && (!l.week || (l.week === 1) === isOddWeek(date)))
+    .map((l) => ({time: l.time, title: l.title, cls: "own", id: l.id,
+                  sub: "своя пара" + (l.week ? ", " + PARITY[l.week] + " недели" : "")}));
+  return [...fromUni, ...own].sort((a, b) => a.time.localeCompare(b.time));
+}
+
 function lessonRow(l, removable) {
   return `<div class="row">
-    <div class="time">${l.time}</div>
-    <div class="main title">${esc(l.title)}</div>
-    ${removable ? `<button class="x" data-del="${l.id}" aria-label="Удалить">×</button>` : ""}
+    <div class="time">${l.time}${l.end ? `<small>${l.end}</small>` : ""}</div>
+    <div class="main">
+      <div class="title"><span class="dot ${l.cls}"></span>${esc(l.title)}</div>
+      ${l.sub ? `<div class="sub">${esc(l.sub)}</div>` : ""}
+    </div>
+    ${removable && l.id ? `<button class="x" data-del="${l.id}" aria-label="Удалить">×</button>` : ""}
+    ${removable && l.hide ? `<button class="hide" data-hide="${esc(l.hide)}">не моя</button>` : ""}
   </div>`;
+}
+
+function renderWeek() {
+  const monday = mondayOf(new Date());
+  monday.setDate(monday.getDate() + weekOffset * 7);
+  const days = Array.from({length: 7}, (_, i) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i));
+  const short = (d) => d.toLocaleDateString("ru-RU", {day: "numeric", month: "short"});
+  $("#week-label").innerHTML = `<b>${weekLabel(monday)}</b><span>${short(days[0])} – ${short(days[6])}${weekOffset === 0 ? " · текущая" : ""}</span>`;
+
+  const today = todayIso();
+  $("#week").innerHTML = days.map((d, i) => {
+    const items = lessonsOn(d);
+    if (i === 6 && !items.length) return ""; // воскресенье показываем, только если есть пары
+    const isToday = isoDate(d) === today;
+    const title = `${DAYS[i]}, ${d.toLocaleDateString("ru-RU", {day: "numeric", month: "long"})}`;
+    return `<div class="day ${isToday ? "today" : ""}">
+      <h2>${title}${isToday ? " · сегодня" : ""}</h2>
+      <div class="list">${items.map((l) => lessonRow(l, true)).join("") || empty("Пар нет")}</div>
+    </div>`;
+  }).join("");
+
+  const updated = uni.updated ? fmtDate(uni.updated) : "";
+  $("#uni-source").innerHTML = esc(!data.group ? "Укажи группу ТулГУ на главной вкладке, чтобы подтянуть расписание"
+    : uni.error ? `Расписание для группы ${data.group} не найдено`
+    : `Расписание ТулГУ, группа ${data.group}${updated ? " · обновлено " + updated : ""}`)
+    + (data.hidden.length ? `<br>Скрыто чужих подгрупп: ${data.hidden.length} · <a href="#" id="unhide">показать все</a>` : "");
 }
 
 // ---------- отрисовка ----------
 
 function render() {
-  const wd = weekday();
-  const lessons = [...data.lessons].sort((a, b) => a.time.localeCompare(b.time));
   const hw = [...data.hw].sort((a, b) => a.date.localeCompare(b.date));
   const tests = data.tests.filter((t) => daysLeft(t.date) >= 0).sort((a, b) => a.date.localeCompare(b.date));
 
-  $("#today-lessons").innerHTML = lessons.filter((l) => l.day === wd).map((l) => lessonRow(l, false)).join("") || empty("Пар нет 🎉");
+  $("#today-title").textContent = `Сегодня · ${weekLabel(new Date())}`;
+  $("#today-lessons").innerHTML = lessonsOn(new Date()).map((l) => lessonRow(l, false)).join("") || empty("Пар нет 🎉");
 
   const soon = [
     ...tests.map((t) => ({...t, kind: "✍️", label: t.title})),
@@ -267,14 +385,7 @@ function render() {
       <div>${x.kind}</div><div class="main title">${esc(x.label)}</div>${leftBadge(x.date)}
     </div>`).join("") || empty("Ничего срочного на 3 дня");
 
-  $("#week").innerHTML = DAYS.map((name, i) => {
-    const items = lessons.filter((l) => l.day === i);
-    if (!items.length) return "";
-    return `<div class="day ${i === wd ? "today" : ""}">
-      <h2>${name}${i === wd ? " · сегодня" : ""}</h2>
-      <div class="list">${items.map((l) => lessonRow(l, true)).join("")}</div>
-    </div>`;
-  }).join("") || `<h2>Расписание</h2><div class="list">${empty("Пока пусто — добавь первую пару")}</div>`;
+  renderWeek();
 
   $("#hw-list").innerHTML = hw.map((h) => `<div class="row">
       <button class="check" data-del="${h.id}" aria-label="Выполнено"></button>
@@ -292,6 +403,7 @@ function render() {
     </div>`).join("") || empty("Контрольных не предвидится");
 
   $("#city-form").city.placeholder = data.city ? `Сейчас: ${data.city.name}` : "Например, Москва";
+  $("#group-form").group.placeholder = data.group ? `Сейчас: ${data.group}` : "Номер группы";
 }
 
 async function loadWeather() {
@@ -344,6 +456,15 @@ document.querySelectorAll("nav button").forEach((btn) => btn.addEventListener("c
 }));
 
 document.body.addEventListener("click", (e) => {
+  if (e.target.dataset?.hide) {
+    data.hidden.push(e.target.dataset.hide);
+    return commit();
+  }
+  if (e.target.id === "unhide") {
+    e.preventDefault();
+    data.hidden = [];
+    return commit();
+  }
   const id = Number(e.target.dataset?.del);
   if (!id) return;
   for (const key of ["lessons", "hw", "tests"]) data[key] = data[key].filter((x) => x.id !== id);
@@ -361,7 +482,18 @@ function bindForm(selector, kind, toItem) {
   });
 }
 
-bindForm("#lesson-form", "lessons", (f) => ({day: Number(f.day.value), time: f.time.value, title: f.title.value.trim()}));
+bindForm("#lesson-form", "lessons", (f) => ({day: Number(f.day.value), time: f.time.value, week: Number(f.week.value), title: f.title.value.trim()}));
+
+$("#week-prev").addEventListener("click", () => { weekOffset--; renderWeek(); });
+$("#week-next").addEventListener("click", () => { weekOffset++; renderWeek(); });
+
+$("#group-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  data.group = e.target.group.value.trim();
+  e.target.group.value = "";
+  await commit();
+  loadUni();
+});
 bindForm("#hw-form", "hw", (f) => ({date: f.date.value, text: f.text.value.trim()}));
 bindForm("#test-form", "tests", (f) => ({date: f.date.value, title: f.title.value.trim(), note: f.note.value.trim()}));
 
@@ -389,6 +521,8 @@ $("#city-form").addEventListener("submit", async (e) => {
     const before = data.tests.length;
     data.tests = data.tests.filter((t) => daysLeft(t.date) >= 0);
     if (data.tests.length !== before) saveData();
+    if (data.group === undefined) data.group = "121561";
+    data.hidden ??= [];
 
     $("#day-select").innerHTML = DAYS.map((d, i) => `<option value="${i}" ${i === weekday() ? "selected" : ""}>${d}</option>`).join("");
     const tomorrow = new Date();
@@ -397,6 +531,7 @@ $("#city-form").addEventListener("submit", async (e) => {
     $("#test-form").date.value = isoDate(tomorrow);
     render();
     loadWeather();
+    loadUni();
   } catch (err) {
     document.body.innerHTML = `<div class="card empty">Не удалось загрузить данные: ${esc(err.message)}</div>`;
   }
