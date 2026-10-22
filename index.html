@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Учёба</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1015;
+    --card: #181b22;
+    --field: #232731;
+    --text: #eceef2;
+    --hint: #8b919e;
+    --accent: #4c8dff;
+    --accent-text: #fff;
+    --danger: #ff6b6b;
+    --sep: #262a33;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 12px 14px calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--hint); margin: 20px 4px 8px; }
+  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+  .list { background: var(--card); border-radius: 14px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 11px 14px; }
+  .row + .row { border-top: 1px solid var(--sep); }
+  .row .main { flex: 1; min-width: 0; }
+  .row .title { overflow-wrap: anywhere; }
+  .row .sub { color: var(--hint); font-size: 13px; }
+  .time { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 46px; }
+  .empty { color: var(--hint); padding: 14px; text-align: center; }
+  .x { background: none; border: 0; color: var(--hint); font-size: 20px; padding: 2px 6px; cursor: pointer; }
+  .check { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--hint);
+           background: none; cursor: pointer; flex: none; }
+  .check:active { background: var(--accent); border-color: var(--accent); }
+  .badge { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 99px;
+           background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); white-space: nowrap; }
+  .badge.hot { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+  .day.today h2 { color: var(--accent); }
+
+  .weather .temp { font-size: 44px; font-weight: 700; line-height: 1.1; }
+  .weather .desc { font-size: 18px; margin-top: 2px; }
+  .weather .parts { display: flex; gap: 8px; margin-top: 14px; }
+  .weather .part { flex: 1; text-align: center; background: var(--field); border-radius: 10px; padding: 8px 4px; }
+  .weather .part b { display: block; font-size: 18px; }
+  .weather .meta { display: flex; gap: 16px; margin-top: 12px; color: var(--hint); flex-wrap: wrap; }
+  .umbrella { margin-top: 12px; font-weight: 600; }
+
+  form { display: grid; gap: 8px; }
+  .inline { display: flex; gap: 8px; }
+  .inline > * { flex: 1; min-width: 0; }
+  input, select {
+    width: 100%; font: inherit; color: var(--text); background: var(--field);
+    border: 1px solid transparent; border-radius: 10px; padding: 10px 12px; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--hint); }
+  input::-webkit-calendar-picker-indicator { filter: invert(.8); }
+  button.primary { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 11px;
+                   background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button.primary:disabled { opacity: .5; }
+
+  nav {
+    position: fixed; left: 0; right: 0; bottom: 0; display: flex;
+    background: var(--card); border-top: 1px solid var(--sep);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  nav button {
+    flex: 1; background: none; border: 0; color: var(--hint); font: inherit; font-size: 11px;
+    padding: 8px 0 10px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  nav button span { font-size: 22px; line-height: 1.2; }
+  nav button.active { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<section id="tab-weather">
+  <div class="card weather" id="weather"><div class="empty">Загружаю…</div></div>
+  <h2>Сегодня</h2>
+  <div class="list" id="today-lessons"></div>
+  <h2>Ближайшее</h2>
+  <div class="list" id="soon"></div>
+  <h2>Город для погоды</h2>
+  <div class="card">
+    <form id="city-form" class="inline">
+      <input name="city" placeholder="Например, Москва" required>
+      <button class="primary" style="flex:none;padding:11px 16px">OK</button>
+    </form>
+  </div>
+</section>
+
+<section id="tab-lessons" hidden>
+  <div id="week"></div>
+  <h2>Добавить пару</h2>
+  <div class="card">
+    <form id="lesson-form">
+      <div class="inline">
+        <select name="day" id="day-select"></select>
+        <input name="time" type="time" required value="09:00">
+      </div>
+      <input name="title" placeholder="Предмет, аудитория" required>
+      <button class="primary">Добавить</button>
+    </form>
+  </div>
+</section>
+
+<section id="tab-hw" hidden>
+  <h2>Домашние задания</h2>
+  <div class="list" id="hw-list"></div>
+  <h2>Новое задание</h2>
+  <div class="card">
+    <form id="hw-form">
+      <input name="date" type="date" required>
+      <input name="text" placeholder="Что задали" required>
+      <button class="primary">Записать</button>
+    </form>
+  </div>
+</section>
+
+<section id="tab-tests" hidden>
+  <h2>Будущие контрольные</h2>
+  <div class="list" id="tests-list"></div>
+  <h2>Новая контрольная</h2>
+  <div class="card">
+    <form id="test-form">
+      <input name="date" type="date" required>
+      <input name="title" placeholder="Предмет" required>
+      <input name="note" placeholder="Тема, формат (необязательно)">
+      <button class="primary">Записать</button>
+    </form>
+  </div>
+</section>
+
+<nav>
+  <button data-tab="weather" class="active"><span>🌤</span>Главная</button>
+  <button data-tab="lessons"><span>🗓</span>Пары</button>
+  <button data-tab="hw"><span>📝</span>Домашка</button>
+  <button data-tab="tests"><span>✍️</span>Контрольные</button>
+</nav>
+
+<script>
+const tg = window.Telegram?.WebApp;
+tg?.ready();
+tg?.expand();
+// шапка и фон Telegram под тёмную тему приложения
+tg?.setHeaderColor?.("#0e1015");
+tg?.setBackgroundColor?.("#0e1015");
+tg?.setBottomBarColor?.("#181b22");
+
+const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
+const WEATHER_CODES = {
+  0: "☀️ ясно", 1: "🌤 преимущественно ясно", 2: "⛅ переменная облачность", 3: "☁️ пасмурно",
+  45: "🌫 туман", 48: "🌫 изморозь", 51: "🌦 лёгкая морось", 53: "🌦 морось", 55: "🌧 сильная морось",
+  56: "🌧 ледяная морось", 57: "🌧 ледяная морось", 61: "🌦 небольшой дождь", 63: "🌧 дождь",
+  65: "🌧 сильный дождь", 66: "🌧 ледяной дождь", 67: "🌧 ледяной дождь", 71: "🌨 небольшой снег",
+  73: "🌨 снег", 75: "❄️ сильный снег", 77: "🌨 снежная крупа", 80: "🌦 ливень",
+  81: "🌧 ливень", 82: "⛈ сильный ливень", 85: "🌨 снегопад", 86: "❄️ сильный снегопад",
+  95: "⛈ гроза", 96: "⛈ гроза с градом", 99: "⛈ гроза с градом",
+};
+
+// ---------- хранилище: облако Telegram (вне Telegram — память браузера) ----------
+
+const cloud = tg?.initData && tg.isVersionAtLeast?.("6.9") ? tg.CloudStorage : null;
+const CHUNK = 2000; // в облаке Telegram значение до 4096 символов, а эмодзи могут считаться за два
+
+let local;
+try {
+  local = window.localStorage;
+  local.getItem("probe");
+} catch {
+  const mem = new Map(); // память браузера бывает недоступна — тогда храним до закрытия страницы
+  local = {getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k)};
+}
+
+const store = {
+  get(keys) {
+    if (!cloud) return Promise.resolve(Object.fromEntries(keys.map((k) => [k, local.getItem("study_" + k) ?? ""])));
+    return new Promise((ok, fail) => cloud.getItems(keys, (err, vals) => err ? fail(new Error(err)) : ok(vals)));
+  },
+  set(key, value) {
+    if (!cloud) return Promise.resolve(local.setItem("study_" + key, value));
+    return new Promise((ok, fail) => cloud.setItem(key, value, (err) => err ? fail(new Error(err)) : ok()));
+  },
+  remove(keys) {
+    if (!cloud) return Promise.resolve(keys.forEach((k) => local.removeItem("study_" + k)));
+    return new Promise((ok, fail) => cloud.removeItems(keys, (err) => err ? fail(new Error(err)) : ok()));
+  },
+};
+
+let data = null;
+let savedChunks = 0;
+
+async function loadData() {
+  const n = Number((await store.get(["data_n"])).data_n) || 0;
+  savedChunks = n;
+  if (!n) return {city: null, lessons: [], hw: [], tests: [], nextId: 1};
+  const keys = Array.from({length: n}, (_, i) => "data_" + i);
+  const vals = await store.get(keys);
+  return JSON.parse(keys.map((k) => vals[k]).join(""));
+}
+
+async function saveData() {
+  // режем по символам, а не по UTF-16, чтобы не разорвать эмодзи между кусками
+  const chars = Array.from(JSON.stringify(data));
+  const chunks = [];
+  for (let i = 0; i < chars.length; i += CHUNK) chunks.push(chars.slice(i, i + CHUNK).join(""));
+  await Promise.all(chunks.map((c, i) => store.set("data_" + i, c)));
+  await store.set("data_n", String(chunks.length));
+  if (savedChunks > chunks.length) {
+    await store.remove(Array.from({length: savedChunks - chunks.length}, (_, i) => "data_" + (chunks.length + i)));
+  }
+  savedChunks = chunks.length;
+}
+
+// ---------- даты и форматирование ----------
+
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const haptic = (type) => tg?.HapticFeedback?.notificationOccurred(type);
+const empty = (text) => `<div class="empty">${text}</div>`;
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const todayIso = () => isoDate(new Date());
+const weekday = () => (new Date().getDay() + 6) % 7;
+const daysLeft = (iso) => Math.round((new Date(iso + "T00:00") - new Date(todayIso() + "T00:00")) / 86400000);
+const fmtDate = (iso) => new Date(iso + "T00:00").toLocaleDateString("ru-RU", {weekday: "short", day: "numeric", month: "long"});
+
+function leftBadge(iso) {
+  const n = daysLeft(iso);
+  const text = n < 0 ? "просрочено" : n === 0 ? "сегодня" : n === 1 ? "завтра" : `через ${n} дн.`;
+  return `<span class="badge ${n <= 1 ? "hot" : ""}">${text}</span>`;
+}
+
+function lessonRow(l, removable) {
+  return `<div class="row">
+    <div class="time">${l.time}</div>
+    <div class="main title">${esc(l.title)}</div>
+    ${removable ? `<button class="x" data-del="${l.id}" aria-label="Удалить">×</button>` : ""}
+  </div>`;
+}
+
+// ---------- отрисовка ----------
+
+function render() {
+  const wd = weekday();
+  const lessons = [...data.lessons].sort((a, b) => a.time.localeCompare(b.time));
+  const hw = [...data.hw].sort((a, b) => a.date.localeCompare(b.date));
+  const tests = data.tests.filter((t) => daysLeft(t.date) >= 0).sort((a, b) => a.date.localeCompare(b.date));
+
+  $("#today-lessons").innerHTML = lessons.filter((l) => l.day === wd).map((l) => lessonRow(l, false)).join("") || empty("Пар нет 🎉");
+
+  const soon = [
+    ...tests.map((t) => ({...t, kind: "✍️", label: t.title})),
+    ...hw.map((h) => ({...h, kind: "📝", label: h.text})),
+  ].filter((x) => daysLeft(x.date) <= 3).sort((a, b) => a.date.localeCompare(b.date));
+  $("#soon").innerHTML = soon.map((x) => `<div class="row">
+      <div>${x.kind}</div><div class="main title">${esc(x.label)}</div>${leftBadge(x.date)}
+    </div>`).join("") || empty("Ничего срочного на 3 дня");
+
+  $("#week").innerHTML = DAYS.map((name, i) => {
+    const items = lessons.filter((l) => l.day === i);
+    if (!items.length) return "";
+    return `<div class="day ${i === wd ? "today" : ""}">
+      <h2>${name}${i === wd ? " · сегодня" : ""}</h2>
+      <div class="list">${items.map((l) => lessonRow(l, true)).join("")}</div>
+    </div>`;
+  }).join("") || `<h2>Расписание</h2><div class="list">${empty("Пока пусто — добавь первую пару")}</div>`;
+
+  $("#hw-list").innerHTML = hw.map((h) => `<div class="row">
+      <button class="check" data-del="${h.id}" aria-label="Выполнено"></button>
+      <div class="main"><div class="title">${esc(h.text)}</div><div class="sub">до ${fmtDate(h.date)}</div></div>
+      ${leftBadge(h.date)}
+    </div>`).join("") || empty("Заданий нет 🎉");
+
+  $("#tests-list").innerHTML = tests.map((t) => `<div class="row">
+      <div class="main">
+        <div class="title"><b>${esc(t.title)}</b></div>
+        <div class="sub">${fmtDate(t.date)}${t.note ? " · " + esc(t.note) : ""}</div>
+      </div>
+      ${leftBadge(t.date)}
+      <button class="x" data-del="${t.id}" aria-label="Удалить">×</button>
+    </div>`).join("") || empty("Контрольных не предвидится");
+
+  $("#city-form").city.placeholder = data.city ? `Сейчас: ${data.city.name}` : "Например, Москва";
+}
+
+async function loadWeather() {
+  const box = $("#weather");
+  if (!data.city) return box.innerHTML = empty("Укажи город внизу страницы 👇");
+  try {
+    const params = new URLSearchParams({
+      latitude: data.city.lat, longitude: data.city.lon, timezone: "auto", forecast_days: 1,
+      daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max",
+      hourly: "temperature_2m",
+    });
+    const w = await (await fetch("https://api.open-meteo.com/v1/forecast?" + params)).json();
+    const d = w.daily;
+    const parts = [["08", "утром"], ["14", "днём"], ["20", "вечером"]].flatMap(([h, label]) => {
+      const i = w.hourly.time.findIndex((t) => t.endsWith(`T${h}:00`));
+      return i < 0 ? [] : [{label, temp: Math.round(w.hourly.temperature_2m[i])}];
+    });
+    const precip = d.precipitation_probability_max[0] ?? 0;
+    const sign = (t) => (t > 0 ? "+" : "") + t + "°";
+    box.innerHTML = `
+      <div class="sub" style="color:var(--hint)">${esc(data.city.name)}</div>
+      <div class="temp">${sign(Math.round(d.temperature_2m_min[0]))} … ${sign(Math.round(d.temperature_2m_max[0]))}</div>
+      <div class="desc">${WEATHER_CODES[d.weather_code[0]] || "без описания"}</div>
+      <div class="parts">${parts.map((p) => `<div class="part">${p.label}<b>${sign(p.temp)}</b></div>`).join("")}</div>
+      <div class="meta"><span>☔ осадки ${precip}%</span><span>💨 ветер до ${Math.round(d.wind_speed_10m_max[0] / 3.6)} м/с</span></div>
+      ${precip >= 50 ? `<div class="umbrella">☂️ Возьми зонт</div>` : ""}`;
+  } catch {
+    box.innerHTML = empty("Не удалось получить погоду 😕");
+  }
+}
+
+// ---------- действия ----------
+
+async function commit() {
+  render();
+  try {
+    await saveData();
+    haptic("success");
+  } catch {
+    haptic("error");
+    tg?.showAlert?.("Не получилось сохранить в облако Telegram");
+  }
+}
+
+document.querySelectorAll("nav button").forEach((btn) => btn.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b === btn));
+  document.querySelectorAll("section").forEach((s) => s.hidden = s.id !== "tab-" + btn.dataset.tab);
+  tg?.HapticFeedback?.selectionChanged();
+  window.scrollTo(0, 0);
+}));
+
+document.body.addEventListener("click", (e) => {
+  const id = Number(e.target.dataset?.del);
+  if (!id) return;
+  for (const key of ["lessons", "hw", "tests"]) data[key] = data[key].filter((x) => x.id !== id);
+  commit();
+});
+
+function bindForm(selector, kind, toItem) {
+  const form = $(selector);
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const item = toItem(form);
+    data[kind].push({id: data.nextId++, ...item});
+    form.querySelectorAll("input:not([type=time]):not([type=date])").forEach((i) => i.value = "");
+    commit();
+  });
+}
+
+bindForm("#lesson-form", "lessons", (f) => ({day: Number(f.day.value), time: f.time.value, title: f.title.value.trim()}));
+bindForm("#hw-form", "hw", (f) => ({date: f.date.value, text: f.text.value.trim()}));
+bindForm("#test-form", "tests", (f) => ({date: f.date.value, title: f.title.value.trim(), note: f.note.value.trim()}));
+
+$("#city-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    const params = new URLSearchParams({name: f.city.value.trim(), count: 1, language: "ru"});
+    const res = await (await fetch("https://geocoding-api.open-meteo.com/v1/search?" + params)).json();
+    const place = res.results?.[0];
+    if (!place) return tg?.showAlert?.("Такой город не нашёлся");
+    data.city = {name: place.name, lat: place.latitude, lon: place.longitude};
+  } catch {
+    return tg?.showAlert?.("Не получилось найти город, проверь интернет");
+  }
+  f.city.value = "";
+  await commit();
+  loadWeather();
+});
+
+(async () => {
+  try {
+    data = await loadData();
+    // прошедшие контрольные больше не нужны
+    const before = data.tests.length;
+    data.tests = data.tests.filter((t) => daysLeft(t.date) >= 0);
+    if (data.tests.length !== before) saveData();
+
+    $("#day-select").innerHTML = DAYS.map((d, i) => `<option value="${i}" ${i === weekday() ? "selected" : ""}>${d}</option>`).join("");
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    $("#hw-form").date.value = isoDate(tomorrow);
+    $("#test-form").date.value = isoDate(tomorrow);
+    render();
+    loadWeather();
+  } catch (err) {
+    document.body.innerHTML = `<div class="card empty">Не удалось загрузить данные: ${esc(err.message)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>
