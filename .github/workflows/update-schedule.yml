@@ -1,0 +1,33 @@
+# Каждый день скачивает свежее расписание ТулГУ и коммитит его, если оно изменилось.
+# В репозитории лежит как .github/workflows/update-schedule.yml
+name: Обновление расписания
+
+on:
+  schedule:
+    - cron: "0 2,14 * * *"  # 05:00 и 17:00 по Москве
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx
+      - run: python tools/fetch_schedule.py 121561 schedule
+      - name: Коммит, если расписание изменилось
+        run: |
+          git add schedule
+          if git diff --cached --quiet; then
+            echo "Расписание не изменилось"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Обновление расписания"
+            git push
+          fi
